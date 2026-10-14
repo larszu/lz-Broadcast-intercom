@@ -35,6 +35,16 @@ const EN = {
   ruleTestSent: "Test for \u201c{keyword}\u201d sent.",
   ruleFailed: "The rule could not be saved or sent",
   rulesEmpty: "No rules yet.",
+  captionsTitle: "Live captions",
+  captionsIntro: "Every transcript line of the chosen channels goes out at once as an OSC message — by default to LZ Vision Mixer, which shows it in its captions graphic. Needs transcription on those channels. At most 10 lines per second.",
+  captionsEnabled: "Send live captions",
+  captionsChannels: "Channels",
+  captionsSpeaker: "Include speaker (\u201cSpeaker: text\u201d)",
+  captionsLayer: "Layer (optional)",
+  captionsSave: "Save",
+  captionsSaved: "Live captions saved.",
+  captionsTestSent: "Test caption sent.",
+  captionsFailed: "Live captions could not be saved or sent",
 
   // ── Intercom plan import (B-41.2) ──────────────────────
   planTitle: "Intercom plan from the AV Planner",
@@ -566,6 +576,16 @@ const DE: typeof EN = {
   ruleTestSent: "Test für \u201e{keyword}\u201c gesendet.",
   ruleFailed: "Die Regel ließ sich nicht speichern oder senden",
   rulesEmpty: "Noch keine Regeln.",
+  captionsTitle: "Live-Untertitel",
+  captionsIntro: "Jede Transkriptzeile der gewählten Kanäle geht sofort als OSC-Nachricht hinaus – standardmäßig an LZ Vision Mixer, der sie in seiner Untertitel-Grafik zeigt. Braucht die Transkription auf diesen Kanälen. Höchstens 10 Zeilen pro Sekunde.",
+  captionsEnabled: "Live-Untertitel senden",
+  captionsChannels: "Kanäle",
+  captionsSpeaker: "Sprecher voranstellen (\u201eSprecher: Text\u201c)",
+  captionsLayer: "Ebene (optional)",
+  captionsSave: "Speichern",
+  captionsSaved: "Live-Untertitel gespeichert.",
+  captionsTestSent: "Test-Untertitel gesendet.",
+  captionsFailed: "Die Live-Untertitel ließen sich nicht speichern oder senden",
 
   // ── Intercom-Plan-Import (B-41.2) ──────────────────────
   planTitle: "Intercom-Plan aus dem AV-Planner",

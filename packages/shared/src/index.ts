@@ -441,6 +441,21 @@ export interface KeywordRule {
   action: KeywordAction;
 }
 
+/** Every final transcript line of the chosen channels goes out as an OSC caption. */
+export interface CaptionFeed {
+  enabled: boolean;
+  host: string;
+  port: number;
+  /** Default `/lzvm/caption` (LZ Vision Mixer). */
+  address: string;
+  /** Empty = every channel. */
+  channelIds: string[];
+  /** Sends "Speaker: text" instead of the bare text. */
+  includeSpeaker: boolean;
+  /** Optional int argument after the text (the mixer's graphics layer). */
+  layer?: number;
+}
+
 export interface CoreState {
   activeConfig: ConfigRef;
   users: Record<string, IntercomUser>;
@@ -460,6 +475,8 @@ export interface CoreState {
   pluginBridge: PluginBridgeConfig;
   /** Keyword rules on transcript lines (optional: older configs lack it). */
   keywordRules?: KeywordRule[];
+  /** Live caption feed (optional: older configs lack it). */
+  captionFeed?: CaptionFeed;
   /**
    * Browser beltpacks the admin has revoked: they may not register again
    * until restored. An operator control, not access control — the core has

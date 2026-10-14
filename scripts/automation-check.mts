@@ -7,7 +7,17 @@
 //
 // Lauf: `npm run automation:check`
 import assert from "node:assert/strict";
-import { dueRules, encodeOscMessage, keywordMatches, matchingRules, ruleError } from "../apps/server/src/automation.ts";
+import {
+  captionFeedError,
+  captionMessage,
+  createRateLimiter,
+  defaultCaptionFeed,
+  dueRules,
+  encodeOscMessage,
+  keywordMatches,
+  matchingRules,
+  ruleError,
+} from "../apps/server/src/automation.ts";
 
 assert.ok(keywordMatches("go", "Go!"));
 assert.ok(keywordMatches("go", "standby, go"));
@@ -46,3 +56,45 @@ const m = encodeOscMessage("/ab", ["xyz"]);
 assert.equal(m.length % 4, 0);
 assert.deepEqual([...m], [...Buffer.from("/ab\0,s\0\0xyz\0")]);
 console.log("✓ OSC-Kodierung: NUL-terminiert, auf 4 Byte aufgefuellt");
+
+const withInt = encodeOscMessage("/c", ["a", 3]);
+assert.deepEqual([...withInt], [...Buffer.from("/c\0\0,si\0a\0\0\0"), 0, 0, 0, 3]);
+console.log("✓ OSC-Kodierung: Ganzzahl als int32 big-endian");
+
+// Live-Untertitel: jede Zeile, kein Stichwort, kein Sekundensperre -- aber
+// nur die gewaehlten Kanaele und hoechstens 10 Zeilen pro Sekunde.
+const feed = { ...defaultCaptionFeed(), enabled: true, port: 4210 };
+const line = { channelId: "ch1", sender: "Cam 2", text: "  Kamera zwei bereit " };
+assert.equal(feed.address, "/lzvm/caption");
+assert.equal(captionMessage({ ...feed, enabled: false }, line), null, "abgeschaltet");
+assert.equal(captionMessage(undefined, line), null, "alte Konfiguration ohne Feed");
+assert.equal(captionMessage({ ...feed, channelIds: ["ch2"] }, line), null, "anderer Kanal");
+assert.ok(captionMessage({ ...feed, channelIds: ["ch2", "ch1"] }, line), "gewaehlter Kanal");
+assert.equal(captionMessage(feed, { ...line, text: "   " }), null, "leere Zeile");
+assert.deepEqual([...captionMessage(feed, line)!], [...encodeOscMessage("/lzvm/caption", ["Kamera zwei bereit"])]);
+assert.deepEqual(
+  [...captionMessage({ ...feed, includeSpeaker: true, layer: 2 }, line)!],
+  [...encodeOscMessage("/lzvm/caption", ["Cam 2: Kamera zwei bereit", 2])],
+  "Sprecher im Text, Ebene als int -- der Mixer liest Argument 2 nur als Zahl",
+);
+const parts = captionMessage({ ...feed, includeSpeaker: true }, line)!.toString("utf8").split("\0").filter(Boolean);
+assert.deepEqual(parts, ["/lzvm/caption", ",s", "Cam 2: Kamera zwei bereit"]);
+console.log("✓ Live-Untertitel: Kanalfilter, Sprecher, Ebene, Kodierung");
+
+const allowed = createRateLimiter(10, 1000);
+const burst = Array.from({ length: 12 }, (_, i) => allowed(5_000 + i));
+assert.equal(burst.filter(Boolean).length, 10, "zwoelf Zeilen in 12 ms: zwei verworfen");
+assert.equal(allowed(5_999), false);
+assert.equal(allowed(6_000), true, "nach einer Sekunde wieder frei");
+const steady = createRateLimiter(10, 1000);
+assert.ok([0, 300, 310, 320, 900].every((t) => steady(t)), "normale Sprechrate geht ungebremst durch");
+console.log("✓ Live-Untertitel: hoechstens 10 pro Sekunde, sonst ungebremst");
+
+assert.equal(captionFeedError(feed), null);
+assert.equal(captionFeedError({ ...feed, host: " " }), "OSC host is empty");
+assert.equal(captionFeedError({ ...feed, port: 0 }), "OSC port must be 1–65535");
+assert.equal(captionFeedError({ ...feed, address: "lzvm/caption" }), "OSC address must start with /");
+assert.equal(captionFeedError({ ...feed, layer: 0 }), "layer must be a whole number from 1");
+assert.equal(captionFeedError({ ...feed, layer: 1.5 }), "layer must be a whole number from 1");
+assert.equal(captionFeedError({ ...feed, channelIds: "ch1" as unknown as string[] }), "channelIds must be a list");
+console.log("✓ Live-Untertitel: Eingaben werden geprueft");
