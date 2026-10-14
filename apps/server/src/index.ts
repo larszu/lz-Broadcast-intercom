@@ -14,7 +14,18 @@ import { WebSocketServer } from "ws";
 import { atomicWrite, bakPath, readWithBackup } from "./configStore.js";
 import { zertifikatBesorgen } from "./tls.js";
 import { TRANSCRIPT_FORMATS, TranscriptLog, type TranscriptFormat } from "./transcriptLog.js";
-import { dueRules, fireAction, ruleError, type TranscriptHit } from "./automation.js";
+import {
+	CAPTION_MAX_PER_SECOND,
+	captionFeedError,
+	captionMessage,
+	createRateLimiter,
+	defaultCaptionFeed,
+	dueRules,
+	fireAction,
+	ruleError,
+	sendCaption,
+	type TranscriptHit,
+} from "./automation.js";
 import type {
 	AudioSettings,
 	BeltpackDevice,
@@ -30,6 +41,7 @@ import type {
 	IntercomGroup,
 	IntercomUser,
 	KeywordRule,
+	CaptionFeed,
 	MatrixRoute,
 	PluginBridgeConfig,
 	PopupMode,
@@ -246,6 +258,7 @@ function createInitialState(configName: string): CoreState {
 		matrixRoutes: [],
 		pluginBridge: defaultPluginBridge(),
 		keywordRules: [],
+		captionFeed: defaultCaptionFeed(),
 		revokedDeviceIds: [],
 		events: [],
 	};
@@ -465,6 +478,7 @@ function hydrateState(raw: Partial<CoreState>, configName: string, updatedAt?: n
 		matrixRoutes: raw.matrixRoutes || [],
 		pluginBridge: { ...defaultPluginBridge(), ...(raw.pluginBridge || {}) },
 		keywordRules: Array.isArray(raw.keywordRules) ? raw.keywordRules : [],
+		captionFeed: { ...defaultCaptionFeed(), ...(raw.captionFeed || {}) },
 		revokedDeviceIds: Array.isArray(raw.revokedDeviceIds) ? raw.revokedDeviceIds.map(String) : [],
 		events: raw.events || [],
 	};
@@ -800,6 +814,29 @@ function runKeywordRules(hit: TranscriptHit): void {
 	}
 }
 
+const captionAllowed = createRateLimiter(CAPTION_MAX_PER_SECOND, 1000);
+let lastCaptionWarning = 0;
+
+// No event per line: the transcript event already shows it. Only failures and
+// dropped lines are reported, at most every 10 s.
+function runCaptionFeed(hit: TranscriptHit): void {
+	const feed = state.captionFeed;
+	const msg = captionMessage(feed, hit);
+	if (!feed || !msg) return;
+	const warn = (text: string) => {
+		if (hit.ts - lastCaptionWarning < 10_000) return;
+		lastCaptionWarning = hit.ts;
+		emitEvent("system", text);
+	};
+	if (!captionAllowed(hit.ts)) {
+		warn(`Live captions: more than ${CAPTION_MAX_PER_SECOND} lines per second, lines dropped`);
+		return;
+	}
+	void sendCaption(feed, msg).then((err) => {
+		if (err) warn(`Live captions failed: ${err}`);
+	});
+}
+
 function handleTranscriptionAudio(payload: Extract<ClientMessage, { type: "transcribe_audio" }>["payload"]): void {
 	const device = ensureDevice(payload.id);
 	if (!device) {
@@ -853,7 +890,9 @@ function handleTranscriptionAudio(payload: Extract<ClientMessage, { type: "trans
 		const channelName = state.channels[payload.channelId]?.name || payload.channelId;
 		transcriptLog.add({ id: randomUUID(), ts: now(), kind: "line", channelId: payload.channelId, channelName, sender: device.label, text });
 		emitEvent("transcript", `[${channelName}] ${device.label}: ${text}`);
-		runKeywordRules({ channelId: payload.channelId, channelName, sender: device.label, text, ts: now() });
+		const hit = { channelId: payload.channelId, channelName, sender: device.label, text, ts: now() };
+		runKeywordRules(hit);
+		runCaptionFeed(hit);
 	} catch {
 		emitEvent("system", `Transcription error on ${device.label}/${payload.channelId}`);
 	}
@@ -1346,6 +1385,47 @@ app.post("/api/automation/rules/:id/test", async (req, res) => {
 	}
 	const channelName = rule.channelId ? state.channels[rule.channelId]?.name ?? rule.channelId : "*";
 	const err = await fireAction(rule, { channelId: rule.channelId ?? "", channelName, sender: "Test", text: `Test: ${rule.keyword}`, ts: now() });
+	res.status(err ? 502 : 200).json(err ? { ok: false, error: err } : { ok: true });
+});
+
+// ── Live caption feed (transcript → OSC caption) ─────────────────────────────
+function captionFeedFromBody(body: any, current: CaptionFeed): CaptionFeed {
+	const b = { ...current, ...(body ?? {}) };
+	const layer = b.layer === undefined || b.layer === null || b.layer === "" ? undefined : Number(b.layer);
+	return {
+		enabled: b.enabled === true,
+		host: String(b.host ?? "").trim(),
+		port: Number(b.port),
+		address: String(b.address ?? "").trim(),
+		channelIds: Array.isArray(b.channelIds) ? b.channelIds.map(String) : b.channelIds,
+		includeSpeaker: b.includeSpeaker === true,
+		...(layer === undefined ? {} : { layer }),
+	};
+}
+
+app.get("/api/automation/captions", (_req, res) => {
+	res.json({ ok: true, feed: state.captionFeed ?? defaultCaptionFeed() });
+});
+
+app.patch("/api/automation/captions", (req, res) => {
+	const feed = captionFeedFromBody(req.body, state.captionFeed ?? defaultCaptionFeed());
+	const unknown = Array.isArray(feed.channelIds) ? feed.channelIds.find((id) => !state.channels[id]) : undefined;
+	const err = captionFeedError(feed) ?? (unknown ? `unknown channel ${unknown}` : null);
+	if (err) {
+		res.status(400).json({ ok: false, error: err });
+		return;
+	}
+	state.captionFeed = feed;
+	emitEvent("config", `Live captions ${feed.enabled ? "on" : "off"} → ${feed.host}:${feed.port} ${feed.address}`);
+	res.json({ ok: true, feed });
+});
+
+// Sends one sample caption regardless of the switch and the channel filter,
+// so the graphic can be checked before the show.
+app.post("/api/automation/captions/test", async (_req, res) => {
+	const feed = state.captionFeed ?? defaultCaptionFeed();
+	const msg = captionMessage({ ...feed, enabled: true, channelIds: [] }, { channelId: "", sender: "Test", text: "Live caption test" });
+	const err = msg ? await sendCaption(feed, msg) : "nothing to send";
 	res.status(err ? 502 : 200).json(err ? { ok: false, error: err } : { ok: true });
 });
 

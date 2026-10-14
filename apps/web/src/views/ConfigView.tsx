@@ -11,6 +11,7 @@ import { HostSettings } from "./HostSettings";
 import { PlanImport } from "./PlanImport";
 import { DeviceTypesView } from "./DeviceTypesView";
 import { AutomationView } from "./AutomationView";
+import { CaptionFeedView } from "./CaptionFeedView";
 import { useLang } from "../i18n";
 
 interface Props {
@@ -98,6 +99,7 @@ export function ConfigView({ state, events, api }: Props) {
         {tab === "automation" && (
           <div className="configAudioPane">
             <AutomationView state={state} api={api} />
+            <CaptionFeedView state={state} api={api} />
           </div>
         )}
 

@@ -152,7 +152,7 @@ jobs:
           cat /tmp/intercom.log
           exit 1
 
-      - name: Smoke-Test (83 Pruefungen)
+      - name: Smoke-Test (88 Pruefungen)
         run: npm run test:smoke
 
       - name: Server-Log bei Fehlschlag

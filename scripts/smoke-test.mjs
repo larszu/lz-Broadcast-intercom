@@ -281,6 +281,20 @@ async function run() {
 	check("webhook test posts the line as JSON", hookTest.status === 200 && JSON.parse(hookBody ?? "{}")?.text === "Test: go");
 	check("rule can be switched off", (await api("PATCH", `/api/automation/rules/${hookRule.json?.rule?.id}`, { enabled: false })).json?.rule?.enabled === false);
 	check("rules delete", (await api("DELETE", `/api/automation/rules/${oscRule.json?.rule?.id}`)).status === 200 && (await api("DELETE", `/api/automation/rules/${hookRule.json?.rule?.id}`)).status === 200);
+	// ── Live captions → OSC ──
+	check("caption feed with a port of 0 → 400", (await api("PATCH", "/api/automation/captions", { port: 0 })).status === 400);
+	check("caption feed with an unknown channel → 400", (await api("PATCH", "/api/automation/captions", { channelIds: ["nope"] })).status === 400);
+	const capUdp = dgram.createSocket("udp4");
+	await new Promise((r) => capUdp.bind(0, "127.0.0.1", r));
+	const capPacket = new Promise((resolve) => { capUdp.once("message", (m) => resolve(m)); setTimeout(() => resolve(null), 3000); });
+	const capSave = await api("PATCH", "/api/automation/captions", { enabled: true, host: "127.0.0.1", port: capUdp.address().port, includeSpeaker: true, channelIds: ["ch1"] });
+	check("caption feed saves", capSave.status === 200 && (await api("GET", "/api/state")).json?.captionFeed?.address === "/lzvm/caption");
+	const capTest = await api("POST", "/api/automation/captions/test");
+	const cap = await capPacket;
+	capUdp.close();
+	const capParts = cap ? cap.toString("utf8").split("\0").filter(Boolean) : [];
+	check("caption test arrives as /lzvm/caption s", capTest.status === 200 && capParts[0] === "/lzvm/caption" && capParts[1] === ",s" && capParts[2] === "Test: Live caption test", capParts.join("|"));
+	check("caption feed switches off", (await api("PATCH", "/api/automation/captions", { enabled: false, channelIds: [] })).json?.feed?.enabled === false);
 	// ── Revoking a browser beltpack ──
 	const rws = await wsOpen();
 	await nextMsg(rws, (m) => m.type === "state");
