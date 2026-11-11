@@ -59,14 +59,27 @@ export function useIntercomStore() {
   }
 
   useEffect(() => {
+    // Reconnect mit Backoff (#40): 1 s, 2 s, 4 s … hoechstens 30 s statt
+    // Dauerfeuer alle 3 s, solange der Kern fehlt. Beim Abbau der Komponente
+    // keinen neuen Versuch mehr planen.
+    let attempt = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
+      if (stopped) return;
       const ws = new WebSocket(`${location.origin.replace("http", "ws")}/ws`);
       wsRef.current = ws;
 
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        attempt = 0;
+        setConnected(true);
+      };
       ws.onclose = () => {
         setConnected(false);
-        setTimeout(connect, 3000);
+        if (stopped) return;
+        const delay = Math.min(30000, 1000 * 2 ** attempt);
+        attempt += 1;
+        timer = setTimeout(connect, delay);
       };
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data) as ServerMessage;
@@ -83,7 +96,11 @@ export function useIntercomStore() {
       };
     };
     connect();
-    return () => wsRef.current?.close();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      wsRef.current?.close();
+    };
   }, []);
 
   return { state, setState, events, connected, sendWs, api, setAudioChunkHandler };

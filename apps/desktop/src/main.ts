@@ -173,7 +173,26 @@ app.on("window-all-closed", () => {
 	app.quit();
 });
 
+// #40: Ein Renderer lief nach dem App-Ende 16 Tage mit ~580 % CPU weiter.
+// Abgaenge von Renderer und Hilfsprozessen protokollieren, damit sich so ein
+// Zustand im Log wiederfindet.
+app.on("render-process-gone", (_e, _wc, details) => {
+	console.error(`Renderer beendet: ${details.reason} (Code ${details.exitCode})`);
+});
+app.on("child-process-gone", (_e, details) => {
+	console.error(`Hilfsprozess ${details.type} beendet: ${details.reason} (Code ${details.exitCode})`);
+});
+
+// Lebenszeichen fuer den Waechter im Preload: bleibt die Antwort aus, ist der
+// Hauptprozess weg und der Renderer beendet sich selbst.
+ipcMain.handle("desktop:ping", () => true);
+
 app.on("before-quit", () => {
+	// Fenster hart beenden, statt auf einen Renderer zu warten, der in einer
+	// heissen Schleife (Audio-Kette, rAF) das Ende verpassen koennte (#40).
+	for (const win of BrowserWindow.getAllWindows()) {
+		if (!win.isDestroyed()) win.destroy();
+	}
 	if (serverProc) {
 		serverProc.kill();
 		serverProc = null;
