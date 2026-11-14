@@ -1,7 +1,7 @@
 {
   "activeConfig": {
     "name": "test",
-    "updatedAt": 1777288145527
+    "updatedAt": 1789503037285
   },
   "users": {
     "user-admin": {
@@ -40,9 +40,19 @@
         "canAllCall": true,
         "canManageDevices": true
       },
+      "callBehavior": {
+        "replyMode": "ptt",
+        "priorityDimDb": -6,
+        "isolate": false,
+        "cueTimeoutSec": 3,
+        "popupMode": "call",
+        "alertTone": false,
+        "toneLevelDb": -12,
+        "activeTimeSec": 0
+      },
       "assignedDeviceIds": [],
-      "createdAt": 1777288145527,
-      "updatedAt": 1777288145527
+      "createdAt": 1789503037284,
+      "updatedAt": 1789503037284
     }
   },
   "devices": {},
